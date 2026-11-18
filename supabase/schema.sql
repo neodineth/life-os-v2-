@@ -1,0 +1,4 @@
+﻿-- The earlier schema was a proposal only. Do not apply it.
+-- The complete, additive account schema is now in:
+-- migrations/202610250001_accounts.sql
+-- See docs/ACCOUNTS_SETUP.md for application and Auth setup.
