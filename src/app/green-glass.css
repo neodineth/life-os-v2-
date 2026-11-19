@@ -76,3 +76,16 @@ select option { background:#191919; color:#eee; }
   .quest-title { font-size:13px; }
   .quest-emblem { width:30px; height:30px; }
 }
+
+/* Compact completed rows; full task information remains in the details dialog. */
+.quest-card.is-done .quest-open{padding:10px 14px;gap:10px;align-items:center}
+.quest-card.is-done .quest-emblem{width:28px;height:28px;border-radius:7px}
+.quest-card.is-done .quest-emblem svg{width:15px;height:15px}
+.quest-card.is-done .quest-title{font-size:12px;line-height:1.4}
+.quest-card.is-done .quest-workspace{font-size:10px;margin-top:3px}
+.quest-card.is-done .card-progress,.quest-card.is-done .card-reward{display:none}
+.quest-card.is-done .quest-controls{width:auto;padding:8px 12px;flex-direction:row;align-items:center;gap:8px}
+.quest-card.is-done .deadline-countdown.none strong{font-size:10px;font-weight:400;color:var(--muted)}
+.quest-card.is-done::before{top:10px;bottom:10px}
+.completed-task-section .quest-list{gap:7px}
+@media(max-width:480px){.quest-card.is-done .deadline-countdown{display:none}.quest-card.is-done .quest-controls{padding-right:8px}}
