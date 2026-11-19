@@ -13,8 +13,8 @@ export function ProgressBar({ progress, title }: { progress: TaskProgress; title
   return <span className="progress-track" role="progressbar" aria-label={`${title} progress`} aria-valuemin={0} aria-valuemax={progress.total} aria-valuenow={progress.completed} aria-valuetext={`${progress.completed} of ${progress.total}, ${progressPercent(progress)} percent`}><span style={{ width: `${progressPercent(progress)}%` }}/></span>;
 }
 
-export function TaskDetail({ userId, task, onChange, onToggle, onEdit, onClose, busy = false, error, onRetry, onStart }: {
-  userId?: string;
+export function TaskDetail({ userId, task, workspaceLabel, onChange, onToggle, onEdit, onClose, busy = false, error, onRetry, onStart }: {
+  userId?: string; workspaceLabel?: string;
   onStart?: (task: FocusTask) => void;
   busy?: boolean; error?: string; onRetry?: () => void; task: Task; onChange: (update: (task: Task) => Task) => void | Promise<boolean>; onToggle: () => void; onEdit: () => void; onClose: () => void;
 }) {
@@ -31,7 +31,7 @@ export function TaskDetail({ userId, task, onChange, onToggle, onEdit, onClose, 
   return <GameDialog title={task.title} titleId="quest-title" onClose={onClose} wide actions={<button className="icon-button" aria-label={`Edit ${task.title}`} disabled={busy} onClick={onEdit}><Pencil size={16}/></button>}>
     {error && <div className="notice" role="alert">{error}{onRetry && <button type="button" disabled={busy} onClick={onRetry}>Retry</button>}</div>}{busy && <p className="sync-status" role="status">Saving?</p>}
     <fieldset disabled={busy} className={`quest-detail ${task.done ? "quest-cleared" : ""}`}>
-      <div className="quest-meta"><span>{task.workspace}</span><span>{task.done ? <><Trophy size={14}/> Cleared</> : "In progress"}</span></div>
+      <div className="quest-meta"><span>{workspaceLabel || task.workspace}</span><span>{task.done ? <><Trophy size={14}/> Cleared</> : "In progress"}</span></div>
       {progress ? <>
         <div className="detail-score"><div><strong>{progressPercent(progress)}<small>%</small></strong><span>{progress.completed}/{progress.total} {progress.unit}</span></div><span className="xp-pill">{progress.completed * 10} XP</span></div>
         <ProgressBar progress={progress} title={task.title}/>

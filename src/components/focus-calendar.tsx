@@ -10,7 +10,7 @@ import { CalendarPlanDialog, type PlanEditing } from "./calendar-plan-dialog";
 import { FocusDayDetails } from "./focus-history-details";
 
 const workspaces = ["University 01", "University 02", "Startup 01", "Startup 02", "Personal Growth"];
-const colors = ["#b699ff", "#58d4f5", "#f7be63", "#ed8fc1", "#77e9b4"];
+const colors = ["#99ffd1", "#58d4f5", "#f7be63", "#ed8fc1", "#77e9b4"];
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const PX_PER_MINUTE = 0.8;
 type View = "week" | "day" | "month";
@@ -31,7 +31,13 @@ export function FocusCalendar({ userId, tasks, sessions, timeZone, activeId, sea
   const [ghost, setGhost] = useState<CalendarOccurrence | null>(null);
   const root = useRef<HTMLDivElement>(null), scroll = useRef<HTMLDivElement>(null), drag = useRef<Drag | null>(null);
   useEffect(() => { if (window.matchMedia("(max-width: 760px)").matches) queueMicrotask(() => setView("day")); }, []);
-  useEffect(() => { const timer = window.setInterval(() => setClockNow(Date.now()), 30000); return () => clearInterval(timer); }, []);
+  useEffect(() => {
+    const refresh = () => setClockNow(Date.now());
+    const timer = window.setInterval(refresh, 1000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { clearInterval(timer); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
+  }, []);
   useEffect(() => { onDialogChange(!!editing || !!actual); return () => onDialogChange(false); }, [editing, actual, onDialogChange]);
   const first = view === "month" ? shiftDay(anchor.slice(0, 7) + "-01", -dayOfWeek(anchor.slice(0, 7) + "-01")) : view === "week" ? shiftDay(anchor, -dayOfWeek(anchor)) : anchor;
   const count = view === "month" ? 42 : view === "week" ? 7 : 1;
@@ -117,6 +123,7 @@ export function FocusCalendar({ userId, tasks, sessions, timeZone, activeId, sea
       <div className="calendar-time-head"><div className="calendar-time-corner">All day</div>{days.map(day => <div key={day} className={`calendar-column-heading ${day === today ? "current" : ""}`}><button onClick={() => { setAnchor(day); setView("day"); }}>{dayNames[dayOfWeek(day)]} <strong>{Number(day.slice(-2))}</strong></button><div className="calendar-deadlines">{shownTasks.filter(task => task.due === day && !task.done).map(task => <button key={task.id} onClick={() => onOpenTask(task.id)}>Due · {task.title}</button>)}</div><small>Focus {durationLabel(totals[day]?.focus || 0)}</small><div className="calendar-lane-headings"><span>Plan</span><span>Actual</span></div></div>)}</div>
       <div className="calendar-time-body"><div className="calendar-hour-labels">{Array.from({ length: 24 }, (_, hour) => <span key={hour} style={{ top: hour * 60 * PX_PER_MINUTE }}>{hour % 12 || 12}{hour < 12 ? " AM" : " PM"}</span>)}</div>
         {days.map(day => <div key={day} data-grid-day={day} className={`calendar-day-lanes ${day === today ? "current" : ""}`}>
+          {day === today && <div className="calendar-now-line" style={{ top: minuteOfDay(clockNow, zone) * PX_PER_MINUTE }} role="img" aria-label={`Current time: ${formatter.format(clockNow)} (${zone})`}><span className="calendar-now-dot"/><span className="calendar-now-label">{formatter.format(clockNow)}</span></div>}
           <div className="calendar-plan-lane" aria-label={`Planned time for ${day}`}><button className="calendar-add-slot" disabled={!cloud.ready || cloud.busy} aria-label={`Plan a task on ${day}`} onClick={event => { const rect = event.currentTarget.getBoundingClientRect(); const minute = event.detail === 0 ? 9 * 60 : Math.max(0, Math.min(1425, Math.floor((event.clientY - rect.top) / PX_PER_MINUTE / 15) * 15)); newPlan(day, minute); }}/>
             {arrangeOverlaps(planSlices.filter(item => item.day === day)).map(item => <div key={item.value.id} className={`calendar-event planned-event ${item.value.done ? "calendar-occurrence-done" : ""} ${ghost?.id === item.value.id ? "calendar-event-pending" : ""}`} style={eventStyle(item, item.value.workspace)}>
               <button className="calendar-resize calendar-resize-start" aria-label={`Resize start of ${item.value.task.title}`} disabled={cloud.busy} onPointerDown={event => beginDrag(event, item.value, "start", day)} onClick={event => { if (event.detail === 0) openPlan(item.value); }}/>

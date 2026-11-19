@@ -17,6 +17,14 @@ export async function POST(request: Request) {
     const command = commandSchema.parse(await readBody(request));
     const { client, userId } = await authenticatedClient();
     if(request.headers.get("x-lifeos-account")!==userId)throw new AppError(401,"account_changed","Account changed. Please log in again.");
+    if (command.type === "rename-workspace") {
+      const result = await client.rpc("lifeos_workspace_rename", { p_workspace: command.workspace, p_name: command.name, p_expected_version: command.expectedVersion });
+      if (result.error) {
+        if (["PGRST202", "42883", "42703"].includes(result.error.code)) throw new AppError(503, "workspace_setup", "Workspace renaming needs the workspace-names SQL migration. Your tasks are unchanged.");
+        throw databaseError(result.error);
+      }
+      return json(snapshotSchema.parse(result.data));
+    }
     let result;
     if (command.type === "save-scheduled") {
       const saved = await client.rpc("lifeos_task_schedule_save", { p_command: command });

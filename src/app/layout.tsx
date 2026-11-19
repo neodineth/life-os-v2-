@@ -3,6 +3,7 @@ import "./globals.css";
 import "./calendar.css";
 import "./chat.css";
 import "./task-schedules.css";
+import "./green-glass.css";
 
 export const metadata: Metadata = {
   title: "LifeOS — Neon quest workspace",

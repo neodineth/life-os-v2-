@@ -26,9 +26,10 @@ export const taskSchema = z.object({
   const progress = normalizeProgress(task.progress);
   return { ...task, progress, done: task.completionMode === "occurrence" ? task.done : progress ? progress.completed === progress.total : task.done };
 });
-export const snapshotSchema = z.object({ tasks: z.array(taskSchema), versions: z.record(z.string(), z.number().int().positive()), playerName: z.string().max(50) });
+export const snapshotSchema = z.object({ tasks: z.array(taskSchema), versions: z.record(z.string(), z.number().int().positive()), playerName: z.string().max(50), workspaceLabels: z.record(z.string(), z.string()).optional(), workspaceVersions: z.record(z.string(), z.number().int().positive()).optional() });
 export type CloudSnapshot = z.infer<typeof snapshotSchema>;
 export const commandSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("rename-workspace"), workspace: z.enum(workspaceNames), name: z.string().trim().min(1).max(50), expectedVersion: z.number().int().positive() }).strict(),
   z.object({ type: z.literal("save"), task: taskSchema, expectedVersion: z.number().int().positive().nullable(), today: date.refine(Boolean), nextId: z.uuid() }).strict(),
   z.object({ type: z.literal("save-scheduled"), task: taskSchema, expectedVersion: z.number().int().positive().nullable(), operationId: z.uuid(), blocks: z.array(plannedBlockSchema).max(20), scheduleVersions: z.record(z.string(), z.number().int().positive()) }).strict(),
   z.object({ type: z.literal("delete"), id, expectedVersion: z.number().int().positive() }).strict(),
