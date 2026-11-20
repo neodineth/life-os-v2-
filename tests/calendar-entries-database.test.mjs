@@ -25,6 +25,28 @@ test('standalone calendar storage, versions, isolation, completions and migratio
  await db.exec('reset role');await db.exec(setup);await user(a);assert.equal((await rpc('lifeos_calendar_load')).blocks[0].task.title,'Updated');
  result=await rpc('lifeos_calendar_mutate',[{action:'delete',id:block.id,expectedVersion:3}]);assert.equal(result.blocks.length,0);assert.equal(result.completions.length,1);
  assert.equal((await rpc('lifeos_load')).tasks.length,0);
+
+ const scoped=(id,date,scope,expectedVersion)=>rpc('lifeos_calendar_delete_scoped',[{action:'delete-scoped',id,date,scope,expectedVersion}]);
+ const recurring={...block,id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'};
+ await save(recurring);
+ await scoped(recurring.id,'2026-11-21','occurrence',1);
+ result=await scoped(recurring.id,'2026-11-21','occurrence',1);assert.equal(result.versions[recurring.id],2);
+ assert.equal(result.exceptions.find(e=>e.seriesId===recurring.id).cancelled,true);
+ await assert.rejects(()=>scoped(recurring.id,'2026-11-22','following',1),e=>e.code==='40001');
+ await user(b);await scoped(recurring.id,'2026-11-22','series',2);await user(a);
+ assert.ok((await rpc('lifeos_calendar_load')).blocks.some(i=>i.id===recurring.id));
+ result=await scoped(recurring.id,'2026-11-22','following',2);
+ assert.equal(result.blocks.find(i=>i.id===recurring.id).repeat.until,'2026-11-21');
+ assert.equal((await scoped(recurring.id,'2026-11-22','following',2)).versions[recurring.id],3);
+ result=await scoped(recurring.id,'2026-11-20','series',3);assert.ok(!result.blocks.some(i=>i.id===recurring.id));
+ await save(recurring);result=await scoped(recurring.id,'2026-11-20','following',1);assert.ok(!result.blocks.some(i=>i.id===recurring.id));
+ // Entire-series deletion removes past plans too, without deleting the workspace task.
+ const parent={id:'parent',title:'Parent',workspace:'University 01',due:'',start:'',focus:'',priority:'Medium',repeat:'None',done:false};
+ await rpc('lifeos_commit',[parent,null,null]);
+ const linked={...recurring,origin:undefined,workspace:parent.workspace,task:{id:parent.id,title:parent.title}};
+ await save(linked);result=await scoped(linked.id,'2026-11-21','series',1);
+ assert.ok(!result.blocks.some(i=>i.id===linked.id));assert.equal((await rpc('lifeos_load')).tasks[0].id,parent.id);
+ await user(null);await assert.rejects(()=>scoped(recurring.id,'2026-11-20','series',1),e=>e.code==='42501');
  await user(null);await assert.rejects(()=>save(block),e=>e.code==='42501');
  }finally{await db.close();}
 });

@@ -30,6 +30,8 @@ export function CalendarPlanDialog({ editing, tasks, timeZone, busy, error, acti
   const [scope, setScope] = useState<"occurrence" | "series">(occurrence?.repeating ? "occurrence" : "series");
   const [draft, setDraft] = useState<Draft>(() => makeDraft(!occurrence?.repeating));
   const [id] = useState(() => series?.id || crypto.randomUUID());
+  const [deleting, setDeleting] = useState(false);
+  const [deleteScope, setDeleteScope] = useState<"occurrence" | "following" | "series">("occurrence");
   const [validation, setValidation] = useState("");
   const selectedTask = tasks.find(task => task.id === draft.taskId);
   const snapshotTask = occurrence?.task || series?.task;
@@ -54,9 +56,7 @@ export function CalendarPlanDialog({ editing, tasks, timeZone, busy, error, acti
   };
   const remove = async () => {
     if (!occurrence) return;
-    const command: CalendarCommand = scope === "occurrence"
-      ? { action: "exception", expectedVersion: occurrence.version, exception: { seriesId: occurrence.seriesId, date: occurrence.date, cancelled: true } }
-      : { action: "delete", id: occurrence.seriesId, expectedVersion: occurrence.version };
+    const command: CalendarCommand = { action: "delete-scoped", id: occurrence.seriesId, date: occurrence.date, scope: occurrence.repeating ? deleteScope : "series", expectedVersion: occurrence.version };
     if (await onSave(command)) onClose();
   };
   return <GameDialog title={occurrence ? "Planned task" : "Plan a task"} titleId="calendar-plan-title" onClose={onClose}>
@@ -81,8 +81,9 @@ export function CalendarPlanDialog({ editing, tasks, timeZone, busy, error, acti
         </>}
         {standalone && <label>Note (optional)<textarea maxLength={1000} value={draft.focus.note} onChange={event => setDraft({ ...draft, focus: { ...draft.focus, note: event.target.value } })}/></label>}
         {!standalone && selectedTask && <FocusTaskFields key={selectedTask.id} task={selectedTask} value={draft.focus} onChange={focus => setDraft({ ...draft, focus })}/>}
+        {deleting && <fieldset className="calendar-delete-options"><legend>Delete scheduled task</legend>{occurrence?.repeating ? <label>Delete<select value={deleteScope} onChange={event => setDeleteScope(event.target.value as typeof deleteScope)}><option value="occurrence">This occurrence</option><option value="following">This and following occurrences</option><option value="series">Entire series</option></select></label> : <p>Delete this calendar entry?</p>}<p>Completed history is kept. Workspace tasks are not deleted.</p><button type="button" className="secondary" onClick={() => setDeleting(false)}>Keep task</button><button type="button" className="primary" onClick={() => void remove()}>Confirm deletion</button></fieldset>}
         <div className="calendar-plan-actions">
-          {occurrence && <button className="secondary calendar-delete" type="button" onClick={() => void remove()}>Delete {occurrence.repeating && scope === "series" ? "series" : "block"}</button>}
+          {occurrence && <button className="secondary calendar-delete" type="button" onClick={() => setDeleting(true)}>Delete</button>}
           <button className="secondary" type="button" onClick={onClose}>Cancel</button>
           <button className="primary" type="submit" disabled={standalone ? !standaloneReady || !draft.title.trim() : !selectedTask}>{busy ? "Saving…" : "Save plan"}</button>
         </div>

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { calendarCommandSchema, calendarSnapshotSchema, expandCalendar } from "@/lib/calendar";
 import { calendarClient, calendarDatabaseError } from "@/lib/calendar-server";
-import { failure, json, readBody } from "@/lib/server-api";
+import { AppError, failure, json, readBody } from "@/lib/server-api";
 
 export async function GET(request: Request) {
   try {
@@ -21,7 +21,8 @@ export async function POST(request: Request) {
   try {
     const command = calendarCommandSchema.parse(await readBody(request));
     const client = await calendarClient(request);
-    const { data, error } = await client.rpc("lifeos_calendar_mutate", { p_command: command });
+    const { data, error } = await client.rpc(command.action === "delete-scoped" ? "lifeos_calendar_delete_scoped" : "lifeos_calendar_mutate", { p_command: command });
+    if (error && command.action === "delete-scoped" && ["PGRST202", "42883"].includes(error.code)) throw new AppError(503, "calendar_delete_setup", "Apply LifeOS-V2-Calendar-Delete.sql in Supabase to enable these deletion options. Your calendar has not changed.");
     if (error) throw calendarDatabaseError(error);
     return json(calendarSnapshotSchema.parse(data));
   } catch (error) { return failure(error); }

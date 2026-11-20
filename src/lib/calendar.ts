@@ -22,6 +22,7 @@ export const exceptionSchema = z.object({ seriesId: z.uuid(), date: calendarDate
 export const occurrenceSchema = z.object({ task: focusTaskSchema, workspace, start: instant, end: instant, id: z.string(), seriesId: z.uuid(), date: calendarDateSchema, version: z.number().int().positive(), repeating: z.boolean(), timeZone: timeZoneSchema });
 export const completionSchema = z.object({ seriesId: z.uuid(), date: calendarDateSchema, done: z.boolean(), version: z.number().int().positive(), occurrence: occurrenceSchema });
 export const calendarCommandSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("delete-scoped"), id: z.uuid(), date: calendarDateSchema, scope: z.enum(["occurrence", "following", "series"]), expectedVersion: z.number().int().positive() }).strict(),
   z.object({ action: z.literal("save"), block: plannedBlockSchema, expectedVersion: z.number().int().positive().nullable() }).strict(),
   z.object({ action: z.literal("exception"), exception: exceptionSchema, expectedVersion: z.number().int().positive() }).strict(),
   z.object({ action: z.literal("delete"), id: z.uuid(), expectedVersion: z.number().int().positive() }).strict(),
