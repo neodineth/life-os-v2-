@@ -8,8 +8,8 @@ export async function calendarClient(request: Request) {
 }
 
 export function calendarDatabaseError(error: { code?: string }) {
-  if (["PGRST202", "PGRST205", "42P01", "42883"].includes(error.code || "")) return new AppError(503, "calendar_setup", "Calendar cloud setup is required. Apply the calendar/focus migration. Your unsent focus records are kept in this browser.");
-  if (error.code === "22023" || error.code === "23514") return new AppError(400, "validation", "The calendar or focus record is invalid, or its task is unavailable. Reload and review the details.");
+  if (["PGRST202", "PGRST205", "42P01", "42883"].includes(error.code || "")) return new AppError(503, "calendar_setup", "Calendar setup is required. Apply the LifeOS V2 backend setup in Supabase, then retry.");
+  if (error.code === "22023" || error.code === "23514") return new AppError(400, "validation", "The calendar entry is invalid, or its task is unavailable. Reload and review the details.");
   return databaseError(error);
 }
 

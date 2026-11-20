@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { calendarSelection } from "@/lib/calendar-selection";
 import { useCalendar } from "@/hooks/use-calendar";
 import { arrangeOverlaps, dayOfWeek, dragOccurrence, expandCalendar, minuteOfDay, shiftDay, splitAtMidnights, zonedDay, zonedInstant, type CalendarOccurrence } from "@/lib/calendar";
 import { durationLabel, focusByDay, type FocusSession, type FocusTask } from "@/lib/focus";
@@ -29,6 +30,8 @@ export function FocusCalendar({ userId, tasks, sessions, timeZone, activeId, sea
   const [editing, setEditing] = useState<PlanEditing | null>(null);
   const [actual, setActual] = useState<{ day: string; sessionId?: string } | null>(null);
   const [ghost, setGhost] = useState<CalendarOccurrence | null>(null);
+  const [selection, setSelection] = useState<{ day: string; start: number; end: number } | null>(null);
+  const selecting = useRef<{ pointerId: number; day: string; anchor: number } | null>(null);
   const root = useRef<HTMLDivElement>(null), scroll = useRef<HTMLDivElement>(null), drag = useRef<Drag | null>(null);
   useEffect(() => { if (window.matchMedia("(max-width: 760px)").matches) queueMicrotask(() => setView("day")); }, []);
   useEffect(() => {
@@ -59,9 +62,36 @@ export function FocusCalendar({ userId, tasks, sessions, timeZone, activeId, sea
   const navigate = (amount: number) => setAnchor(view === "month" ? monthShift(anchor, amount) : shiftDay(anchor, amount * count));
   const openPlan = (occurrence: CalendarOccurrence) => { cloud.clearError(); onDialogChange(true); setEditing({ start: occurrence.start, end: occurrence.end, occurrence, series: cloud.blocks.find(block => block.id === occurrence.seriesId) }); };
   const openActual = (day: string, sessionId?: string) => { onDialogChange(true); setActual({ day, sessionId }); };
-  const newPlan = (day: string, minute = 9 * 60) => {
-    const time = `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
-    const start = zonedInstant(day, time, zone); cloud.clearError(); onDialogChange(true); setEditing({ start, end: start + 3600000 });
+  const newPlan = (day: string, minute = 540, endMinute = minute + 30) => {
+    const at = (value: number) => zonedInstant(shiftDay(day, Math.floor(value / 1440)), `${String(Math.floor(value % 1440 / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`, zone);
+    cloud.clearError(); onDialogChange(true); setEditing({ start: at(minute), end: at(endMinute), standalone: true });
+  };
+  const cancelSelection = () => { selecting.current = null; setSelection(null); };
+  const selectStart = (event: PointerEvent<HTMLButtonElement>, day: string) => {
+    if (event.pointerType === "touch" || event.button !== 0 || !cloud.ready || cloud.busy) return;
+    event.preventDefault(); event.stopPropagation(); event.currentTarget.focus({ preventScroll: true });
+    const anchor = (event.clientY - event.currentTarget.getBoundingClientRect().top) / PX_PER_MINUTE;
+    selecting.current = { pointerId: event.pointerId, day, anchor };
+    setSelection({ day, ...calendarSelection(anchor, anchor) });
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const selectMove = (event: PointerEvent<HTMLButtonElement>) => {
+    const current = selecting.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    event.stopPropagation();
+    const minute = (event.clientY - event.currentTarget.getBoundingClientRect().top) / PX_PER_MINUTE;
+    setSelection({ day: current.day, ...calendarSelection(current.anchor, minute) });
+  };
+  const selectEnd = (event: PointerEvent<HTMLButtonElement>) => {
+    const current = selecting.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect(), bounds = scroll.current?.getBoundingClientRect();
+    const range = calendarSelection(current.anchor, (event.clientY - rect.top) / PX_PER_MINUTE);
+    cancelSelection();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    if (event.clientX < rect.left || event.clientX > rect.right || (bounds && (event.clientY < bounds.top || event.clientY > bounds.bottom))) return;
+    newPlan(current.day, range.start, range.end);
   };
   const beginDrag = (event: PointerEvent<HTMLElement>, occurrence: CalendarOccurrence, mode: Drag["mode"], day: string) => {
     if (occurrence.done) { if (mode === "move") openPlan(occurrence); return; }
@@ -100,13 +130,13 @@ export function FocusCalendar({ userId, tasks, sessions, timeZone, activeId, sea
     height: Math.max(5, ((zonedDay(slice.end, zone) !== slice.day ? 1440 : minuteOfDay(slice.end, zone)) - minuteOfDay(slice.start, zone)) * PX_PER_MINUTE),
     left: `calc(${slice.column * 100 / slice.columns}% + 2px)`, width: `calc(${100 / slice.columns}% - 4px)`, "--event-color": colors[workspaces.indexOf(workspace)] || colors[0],
   } as CSSProperties);
-  return <div className="focus-calendar" ref={root} onPointerMove={moveDrag} onPointerUp={event => void endDrag(event)} onPointerCancel={cancelDrag} onLostPointerCapture={() => { if (drag.current) cancelDrag(); }} onKeyDown={event => { if (event.key === "Escape" && drag.current) { event.preventDefault(); event.stopPropagation(); cancelDrag(); } }}>
+  return <div className="focus-calendar" ref={root} onPointerMove={moveDrag} onPointerUp={event => void endDrag(event)} onPointerCancel={cancelDrag} onLostPointerCapture={() => { if (drag.current) cancelDrag(); }} onKeyDown={event => { if (event.key === "Escape" && (drag.current || selecting.current)) { event.preventDefault(); event.stopPropagation(); cancelDrag(); cancelSelection(); } }}>
     <div className="calendar-controls"><div><h2>{view === "month" ? monthTitle : view === "day" ? anchor : `${first} – ${days.at(-1)}`}</h2><span className="calendar-zone">{zone}</span></div>
       <div className="calendar-navigation"><button className="secondary" onClick={() => setAnchor(today)}>Today</button><button className="icon-button" aria-label="Previous calendar period" onClick={() => navigate(-1)}><ChevronLeft size={19}/></button><button className="icon-button" aria-label="Next calendar period" onClick={() => navigate(1)}><ChevronRight size={19}/></button></div>
       <div className="calendar-view-tabs" aria-label="Calendar view">{(["day", "week", "month"] as const).map(value => <button key={value} aria-pressed={view === value} onClick={() => setView(value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>
       <button className="primary" disabled={!cloud.ready || cloud.busy} onClick={() => newPlan(anchor)}><Plus size={15}/>Plan task</button>
     </div>
-    <div className="calendar-legend"><span>Plan · task workspace colors</span><span className="actual-focus">Focus</span><span className="actual-away">Away</span><span className="actual-paused">Paused</span><span className="actual-untracked">Untracked</span><span>Drag a block to move it; drag its edges to resize. Repeats change this occurrence.</span></div>
+    <div className="calendar-legend"><span>Plan · task workspace colors</span><span className="actual-focus">Focus</span><span className="actual-away">Away</span><span className="actual-paused">Paused</span><span className="actual-untracked">Untracked</span><span>Drag empty Plan slots to add a calendar-only task. Drag a block to move it; drag its edges to resize. Repeats change this occurrence.</span></div>
     {cloud.error && <div className="notice" role="alert">{cloud.error}<button disabled={cloud.busy} onClick={() => void (cloud.retry ? cloud.retry() : cloud.load())}>Retry</button></div>}
     {cloud.busy && <p className="sync-status" role="status">Saving plan…</p>}
     {!cloud.ready && !cloud.error && <p className="sync-status">Loading calendar…</p>}
@@ -114,7 +144,7 @@ export function FocusCalendar({ userId, tasks, sessions, timeZone, activeId, sea
       const scheduled = planSlices.filter(item => item.day === day);
       return <div key={day} className={`calendar-day ${day === today ? "current" : ""} ${day.slice(0, 7) !== anchor.slice(0, 7) ? "outside-month" : ""}`}>
         <button className="calendar-date-open" aria-label={`Open day ${day}`} onClick={() => { setAnchor(day); setView("day"); }}>{Number(day.slice(-2))}</button>
-        {scheduled.slice(0, 3).map(item => <button className="month-plan" key={item.value.id} style={{ borderColor: colors[workspaces.indexOf(item.value.workspace)] }} onClick={() => openPlan(item.value)}>{item.value.done ? "✓ " : ""}{formatter.format(item.value.start)} · {item.value.task.title}</button>)}
+        {scheduled.slice(0, 3).map(item => <button className="month-plan" key={item.value.id} style={{ borderColor: colors[workspaces.indexOf(item.value.workspace)] || colors[0] }} onClick={() => openPlan(item.value)}>{item.value.done ? "✓ " : ""}{formatter.format(item.value.start)} · {item.value.task.title}</button>)}
         {scheduled.length > 3 && <button onClick={() => { setAnchor(day); setView("day"); }}>+{scheduled.length - 3} more plans</button>}
         {totals[day] && <button className="calendar-focus-summary" onClick={() => openActual(day)}><span>Focus {durationLabel(totals[day].focus)}</span><span>Away {durationLabel(totals[day].away)}</span></button>}
         {shownTasks.filter(task => task.due === day && !task.done).map(task => <button key={task.id} onClick={() => onOpenTask(task.id)} style={{ borderColor: colors[workspaces.indexOf(task.workspace)] }}>Due · {task.title}</button>)}
@@ -124,7 +154,8 @@ export function FocusCalendar({ userId, tasks, sessions, timeZone, activeId, sea
       <div className="calendar-time-body"><div className="calendar-hour-labels">{Array.from({ length: 24 }, (_, hour) => <span key={hour} style={{ top: hour * 60 * PX_PER_MINUTE }}>{hour % 12 || 12}{hour < 12 ? " AM" : " PM"}</span>)}</div>
         {days.map(day => <div key={day} data-grid-day={day} className={`calendar-day-lanes ${day === today ? "current" : ""}`}>
           {day === today && <div className="calendar-now-line" style={{ top: minuteOfDay(clockNow, zone) * PX_PER_MINUTE }} role="img" aria-label={`Current time: ${formatter.format(clockNow)} (${zone})`}><span className="calendar-now-dot"/><span className="calendar-now-label">{formatter.format(clockNow)}</span></div>}
-          <div className="calendar-plan-lane" aria-label={`Planned time for ${day}`}><button className="calendar-add-slot" disabled={!cloud.ready || cloud.busy} aria-label={`Plan a task on ${day}`} onClick={event => { const rect = event.currentTarget.getBoundingClientRect(); const minute = event.detail === 0 ? 9 * 60 : Math.max(0, Math.min(1425, Math.floor((event.clientY - rect.top) / PX_PER_MINUTE / 15) * 15)); newPlan(day, minute); }}/>
+          <div className="calendar-plan-lane" aria-label={`Planned time for ${day}`}><button className="calendar-add-slot" disabled={!cloud.ready || cloud.busy} aria-label={`Add calendar task on ${day}; press Enter to choose times`} onPointerDown={event => selectStart(event, day)} onPointerMove={selectMove} onPointerUp={selectEnd} onPointerCancel={cancelSelection} onLostPointerCapture={cancelSelection} onClick={event => { if (event.detail === 0) newPlan(day); else if ((event.nativeEvent as globalThis.PointerEvent).pointerType === "touch") { const minute = Math.max(0, Math.min(1410, Math.floor((event.clientY - event.currentTarget.getBoundingClientRect().top) / PX_PER_MINUTE / 30) * 30)); newPlan(day, minute); } }}/>
+            {selection?.day === day && <div className="calendar-range-selection" style={{ top: selection.start * PX_PER_MINUTE, height: (selection.end - selection.start) * PX_PER_MINUTE }}><span>{String(Math.floor(selection.start / 60)).padStart(2, "0")}:{String(selection.start % 60).padStart(2, "0")} ? {String(Math.floor(selection.end / 60)).padStart(2, "0")}:{String(selection.end % 60).padStart(2, "0")}</span></div>}
             {arrangeOverlaps(planSlices.filter(item => item.day === day)).map(item => <div key={item.value.id} className={`calendar-event planned-event ${item.value.done ? "calendar-occurrence-done" : ""} ${ghost?.id === item.value.id ? "calendar-event-pending" : ""}`} style={eventStyle(item, item.value.workspace)}>
               <button className="calendar-resize calendar-resize-start" aria-label={`Resize start of ${item.value.task.title}`} disabled={cloud.busy} onPointerDown={event => beginDrag(event, item.value, "start", day)} onClick={event => { if (event.detail === 0) openPlan(item.value); }}/>
               <button className="calendar-event-open" aria-label={`Planned ${item.value.task.title}, ${formatter.format(item.value.start)} to ${formatter.format(item.value.end)}${item.value.done ? ", completed" : ""}`} title={`${item.value.task.title}\n${formatter.format(item.value.start)} – ${formatter.format(item.value.end)}${item.value.task.note ? `\n${item.value.task.note}` : ""}`} disabled={cloud.busy} onPointerDown={event => beginDrag(event, item.value, "move", day)} onClick={event => { if (event.detail === 0) openPlan(item.value); }}><strong>{item.value.done ? "✓ " : ""}{item.value.task.title}</strong><small>{formatter.format(item.value.start)} – {formatter.format(item.value.end)}</small>{item.value.repeating && <span className="calendar-repeats">↻</span>}</button>
@@ -135,7 +166,7 @@ export function FocusCalendar({ userId, tasks, sessions, timeZone, activeId, sea
         </div>)}
       </div>
     </div></div>}
-    {editing && <CalendarPlanDialog editing={editing} tasks={tasks} timeZone={zone} busy={cloud.busy} error={cloud.error} activeFocus={!!activeId} completionReady={!!cloud.taskSchedulesReady} onSave={cloud.commit} onClose={() => setEditing(null)} onFocus={onFocus}/>}
+    {editing && <CalendarPlanDialog editing={editing} tasks={tasks} timeZone={zone} busy={cloud.busy} error={cloud.error} activeFocus={!!activeId} standaloneReady={!!cloud.standaloneReady} completionReady={!!cloud.taskSchedulesReady} onSave={cloud.commit} onClose={() => setEditing(null)} onFocus={onFocus}/>}
     {actual && <FocusDayDetails day={actual.day} sessions={actual.sessionId ? sessions.filter(session => session.id === actual.sessionId) : sessions} timeZone={zone} activeId={activeId} onClose={() => setActual(null)}/>}
   </div>;
 }
