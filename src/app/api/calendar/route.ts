@@ -21,7 +21,8 @@ export async function POST(request: Request) {
   try {
     const command = calendarCommandSchema.parse(await readBody(request));
     const client = await calendarClient(request);
-    const { data, error } = await client.rpc(command.action === "delete-scoped" ? "lifeos_calendar_delete_scoped" : "lifeos_calendar_mutate", { p_command: command });
+    const { data, error } = await client.rpc(command.action === "progress" ? "lifeos_calendar_progress_save" : command.action === "delete-scoped" ? "lifeos_calendar_delete_scoped" : "lifeos_calendar_mutate", { p_command: command });
+    if (error && command.action === "progress" && ["PGRST202", "42883"].includes(error.code)) throw new AppError(503, "calendar_progress_setup", "Apply LifeOS-V2-Calendar-Progress.sql in Supabase to save status and progress notes.");
     if (error && command.action === "delete-scoped" && ["PGRST202", "42883"].includes(error.code)) throw new AppError(503, "calendar_delete_setup", "Apply LifeOS-V2-Calendar-Delete.sql in Supabase to enable these deletion options. Your calendar has not changed.");
     if (error) throw calendarDatabaseError(error);
     return json(calendarSnapshotSchema.parse(data));

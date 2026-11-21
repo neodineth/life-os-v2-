@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
-import { calendarSelection } from "@/lib/calendar-selection";
+import { calendarSelection, timelineMinute, visibleTimelineSlice } from "@/lib/calendar-selection";
 import { useCalendar } from "@/hooks/use-calendar";
-import { arrangeOverlaps, dayOfWeek, expandCalendar, minuteOfDay, shiftDay, splitAtMidnights, zonedDay, zonedInstant, type CalendarOccurrence } from "@/lib/calendar";
+import { arrangeOverlaps, calendarStatusLabels, dayOfWeek, expandCalendar, minuteOfDay, shiftDay, splitAtMidnights, zonedDay, zonedInstant, type CalendarOccurrence } from "@/lib/calendar";
 import { durationLabel, focusByDay, type FocusSession, type FocusTask } from "@/lib/focus";
 import type { Task } from "@/lib/tasks";
 import { CalendarPlanDialog, type PlanEditing } from "./calendar-plan-dialog";
@@ -26,7 +26,13 @@ export function FocusCalendar({ initialDay, userId, tasks, sessions, timeZone, a
   const [narrow, setNarrow] = useState(false);
   const [timelineHeight, setTimelineHeight] = useState(576);
   const view = requestedView === "week" && narrow ? "day" : requestedView;
-  const pxPerMinute = timelineHeight / 1440;
+  const [showEarlyHours, setShowEarlyHours] = useState(false);
+  const startMinute = showEarlyHours ? 0 : 360;
+  const pxPerMinute = timelineHeight / (1440 - startMinute);
+  useEffect(() => {
+    const timer = setTimeout(() => { try { setShowEarlyHours(localStorage.getItem(`lifeos.calendar.early:${userId}`) === "true"); } catch { /* Default to collapsed. */ } }, 0);
+    return () => clearTimeout(timer);
+  }, [userId]);
   const [anchor, setAnchor] = useState(() => initialDay || zonedDay(Date.now(), timeZone));
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [editing, setEditing] = useState<PlanEditing | null>(null);
@@ -97,7 +103,7 @@ export function FocusCalendar({ initialDay, userId, tasks, sessions, timeZone, a
   const selectStart = (event: PointerEvent<HTMLButtonElement>, day: string) => {
     if (event.pointerType === "touch" || event.button !== 0 || !cloud.ready || cloud.busy) return;
     event.preventDefault(); event.stopPropagation(); event.currentTarget.focus({ preventScroll: true });
-    const anchor = (event.clientY - event.currentTarget.getBoundingClientRect().top) / pxPerMinute;
+    const anchor = timelineMinute(event.clientY - event.currentTarget.getBoundingClientRect().top, timelineHeight, startMinute);
     selecting.current = { pointerId: event.pointerId, day, anchor };
     setSelection({ day, ...calendarSelection(anchor, anchor) });
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -106,7 +112,7 @@ export function FocusCalendar({ initialDay, userId, tasks, sessions, timeZone, a
     const current = selecting.current;
     if (!current || current.pointerId !== event.pointerId) return;
     event.stopPropagation();
-    const minute = (event.clientY - event.currentTarget.getBoundingClientRect().top) / pxPerMinute;
+    const minute = timelineMinute(event.clientY - event.currentTarget.getBoundingClientRect().top, timelineHeight, startMinute);
     setSelection({ day: current.day, ...calendarSelection(current.anchor, minute) });
   };
   const selectEnd = (event: PointerEvent<HTMLButtonElement>) => {
@@ -114,14 +120,14 @@ export function FocusCalendar({ initialDay, userId, tasks, sessions, timeZone, a
     if (!current || current.pointerId !== event.pointerId) return;
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect(), bounds = scroll.current?.getBoundingClientRect();
-    const range = calendarSelection(current.anchor, (event.clientY - rect.top) / pxPerMinute);
+    const range = calendarSelection(current.anchor, timelineMinute(event.clientY - rect.top, timelineHeight, startMinute));
     cancelSelection();
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     if (event.clientX < rect.left || event.clientX > rect.right || (bounds && (event.clientY < bounds.top || event.clientY > bounds.bottom))) return;
     newPlan(current.day, range.start, range.end);
   };
   const eventStyle = (slice: { start: number; end: number; day: string; column: number; columns: number }, workspace: string): CSSProperties => ({
-    top: minuteOfDay(slice.start, zone) * pxPerMinute,
+    top: (minuteOfDay(slice.start, zone) - startMinute) * pxPerMinute,
     height: Math.max(5, ((zonedDay(slice.end, zone) !== slice.day ? 1440 : minuteOfDay(slice.end, zone)) - minuteOfDay(slice.start, zone)) * pxPerMinute),
     left: `calc(${slice.column * 100 / slice.columns}% + 2px)`, width: `calc(${100 / slice.columns}% - 4px)`, "--event-color": colors[workspaces.indexOf(workspace)] || colors[0],
   } as CSSProperties);
@@ -132,6 +138,7 @@ export function FocusCalendar({ initialDay, userId, tasks, sessions, timeZone, a
       <button className="primary" disabled={!cloud.ready || cloud.busy} onClick={() => newPlan(anchor)}><Plus size={15}/>Plan task</button>
     </div>
     <div className="calendar-legend"><span>Plan · task workspace colors</span><span className="actual-focus">Focus</span><span className="actual-away">Away</span><span className="actual-paused">Paused</span><span className="actual-untracked">Untracked</span><span>Drag empty Plan slots to add a calendar-only task. Click a saved task to edit its time or delete it.</span></div>
+    {view !== "month" && <button className="secondary calendar-early-toggle" aria-expanded={showEarlyHours} onClick={() => { cancelSelection(); setShowEarlyHours(!showEarlyHours); try { localStorage.setItem(`lifeos.calendar.early:${userId}`, String(!showEarlyHours)); } catch { /* The toggle still works for this visit. */ } }}>{showEarlyHours ? "Hide midnight to 6 AM" : "Show midnight to 6 AM"}{!showEarlyHours && ` - ${new Set(planSlices.filter(item => minuteOfDay(item.start, zone) < 360).map(item => item.value.id)).size} plans in collapsed hours`}</button>}
     {cloud.error && <div className="notice" role="alert">{cloud.error}<button disabled={cloud.busy} onClick={() => void (cloud.retry ? cloud.retry() : cloud.load())}>Retry</button></div>}
     {cloud.busy && <p className="sync-status" role="status">Saving plan…</p>}
     {!cloud.ready && !cloud.error && <p className="sync-status">Loading calendar…</p>}
@@ -146,20 +153,20 @@ export function FocusCalendar({ initialDay, userId, tasks, sessions, timeZone, a
       </div>;
     })}</div> : <div className="calendar-time-scroll" ref={scroll}><div className="calendar-time-grid" style={{ "--day-count": count } as CSSProperties}>
       <div className="calendar-time-head"><div className="calendar-time-corner">All day</div>{days.map(day => <div key={day} className={`calendar-column-heading ${day === today ? "current" : ""}`}><button onClick={() => { setAnchor(day); setView("day"); }}>{dayNames[dayOfWeek(day)]} <strong>{Number(day.slice(-2))}</strong></button><div className="calendar-deadlines">{shownTasks.filter(task => task.due === day && !task.done).map(task => <button key={task.id} onClick={() => onOpenTask(task.id)}>Due · {task.title}</button>)}</div><small>Focus {durationLabel(totals[day]?.focus || 0)}</small><div className="calendar-lane-headings"><span>Plan</span><span>Actual</span></div></div>)}</div>
-      <div className="calendar-time-body"><div className="calendar-hour-labels">{Array.from({ length: 24 }, (_, hour) => <span key={hour} style={{ top: hour * 60 * pxPerMinute }} hidden={timelineHeight < 480 && hour % 2 !== 0}>{hour % 12 || 12}{hour < 12 ? " AM" : " PM"}</span>)}</div>
+      <div className="calendar-time-body"><div className="calendar-hour-labels">{Array.from({ length: 24 }, (_, hour) => <span key={hour} style={{ top: (hour * 60 - startMinute) * pxPerMinute }} hidden={hour * 60 < startMinute || (timelineHeight < 480 && hour % 2 !== 0)}>{hour % 12 || 12}{hour < 12 ? " AM" : " PM"}</span>)}</div>
         {days.map(day => <div key={day} data-grid-day={day} className={`calendar-day-lanes ${day === today ? "current" : ""}`}>
-          {day === today && <div className="calendar-now-line" style={{ top: minuteOfDay(clockNow, zone) * pxPerMinute }} role="img" aria-label={`Current time: ${formatter.format(clockNow)} (${zone})`}><span className="calendar-now-dot"/><span className="calendar-now-label">{formatter.format(clockNow)}</span></div>}
-          <div className="calendar-plan-lane" aria-label={`Planned time for ${day}`}><button className="calendar-add-slot" disabled={!cloud.ready || cloud.busy} aria-label={`Add calendar task on ${day}; press Enter to choose times`} onPointerDown={event => selectStart(event, day)} onPointerMove={selectMove} onPointerUp={selectEnd} onPointerCancel={cancelSelection} onLostPointerCapture={cancelSelection} onClick={event => { if (event.detail === 0) newPlan(day); else if ((event.nativeEvent as globalThis.PointerEvent).pointerType === "touch") { const minute = Math.max(0, Math.min(1410, Math.floor((event.clientY - event.currentTarget.getBoundingClientRect().top) / pxPerMinute / 30) * 30)); newPlan(day, minute); } }}/>
-            {selection?.day === day && <div className="calendar-range-selection" style={{ top: selection.start * pxPerMinute, height: (selection.end - selection.start) * pxPerMinute }}><span>{String(Math.floor(selection.start / 60)).padStart(2, "0")}:{String(selection.start % 60).padStart(2, "0")} ? {String(Math.floor(selection.end / 60)).padStart(2, "0")}:{String(selection.end % 60).padStart(2, "0")}</span></div>}
-            {arrangeOverlaps(planSlices.filter(item => item.day === day)).map(item => <div key={item.value.id} className={`calendar-event planned-event ${item.value.done ? "calendar-occurrence-done" : ""}`} style={eventStyle(item, item.value.workspace)}>
-              <button className="calendar-event-open" aria-label={`Planned ${item.value.task.title}, ${formatter.format(item.value.start)} to ${formatter.format(item.value.end)}${item.value.done ? ", completed" : ""}`} title={`${item.value.task.title}\n${formatter.format(item.value.start)} – ${formatter.format(item.value.end)}${item.value.task.note ? `\n${item.value.task.note}` : ""}`} disabled={cloud.busy} onClick={() => openPlan(item.value)}><strong>{item.value.done ? "✓ " : ""}{item.value.task.title}</strong><small>{formatter.format(item.value.start)} – {formatter.format(item.value.end)}</small>{item.value.repeating && <span className="calendar-repeats">↻</span>}</button>
+          {day === today && minuteOfDay(clockNow, zone) >= startMinute && <div className="calendar-now-line" style={{ top: (minuteOfDay(clockNow, zone) - startMinute) * pxPerMinute }} role="img" aria-label={`Current time: ${formatter.format(clockNow)} (${zone})`}><span className="calendar-now-dot"/><span className="calendar-now-label">{formatter.format(clockNow)}</span></div>}
+          <div className="calendar-plan-lane" aria-label={`Planned time for ${day}`}><button className="calendar-add-slot" disabled={!cloud.ready || cloud.busy} aria-label={`Add calendar task on ${day}; press Enter to choose times`} onPointerDown={event => selectStart(event, day)} onPointerMove={selectMove} onPointerUp={selectEnd} onPointerCancel={cancelSelection} onLostPointerCapture={cancelSelection} onClick={event => { if (event.detail === 0) newPlan(day); else if ((event.nativeEvent as globalThis.PointerEvent).pointerType === "touch") { const minute = Math.max(0, Math.min(1410, Math.floor(timelineMinute(event.clientY - event.currentTarget.getBoundingClientRect().top, timelineHeight, startMinute) / 30) * 30)); newPlan(day, minute); } }}/>
+            {selection?.day === day && <div className="calendar-range-selection" style={{ top: (selection.start - startMinute) * pxPerMinute, height: (selection.end - selection.start) * pxPerMinute }}><span>{String(Math.floor(selection.start / 60)).padStart(2, "0")}:{String(selection.start % 60).padStart(2, "0")} ? {String(Math.floor(selection.end / 60)).padStart(2, "0")}:{String(selection.end % 60).padStart(2, "0")}</span></div>}
+            {arrangeOverlaps(planSlices.filter(item => item.day === day).flatMap(item => { const visible = visibleTimelineSlice(item, zonedInstant(day, showEarlyHours ? "00:00" : "06:00", zone)); return visible ? [visible] : []; })).map(item => <div key={item.value.id} className={`calendar-event planned-event calendar-status-${item.value.status || (item.value.done ? "completed" : "pending")} ${item.value.done ? "calendar-occurrence-done" : ""}`} style={eventStyle(item, item.value.workspace)}>
+              <button className="calendar-event-open" aria-label={`Planned ${item.value.task.title}, ${formatter.format(item.value.start)} to ${formatter.format(item.value.end)}, ${calendarStatusLabels[item.value.status || (item.value.done ? "completed" : "pending")]}`} title={`${calendarStatusLabels[item.value.status || (item.value.done ? "completed" : "pending")]}\n${item.value.task.title}\n${formatter.format(item.value.start)} – ${formatter.format(item.value.end)}${item.value.task.note ? `\n${item.value.task.note}` : ""}`} disabled={cloud.busy} onClick={() => openPlan(item.value)}><strong>{item.value.done ? "✓ " : item.value.status === "partial" ? "◐ " : item.value.status === "could_not_complete" ? "× " : ""}{item.value.task.title}</strong><small>{formatter.format(item.value.start)} – {formatter.format(item.value.end)}</small>{item.value.repeating && <span className="calendar-repeats">↻</span>}</button>
             </div>)}
           </div>
-          <div className="calendar-actual-lane" aria-label={`Recorded time for ${day}`}>{arrangeOverlaps(actualSlices.filter(item => item.day === day)).map(item => <button key={`${item.value.session.id}:${item.start}`} className={`calendar-event actual-event actual-${item.value.state}`} style={eventStyle(item, "")} aria-label={`Recorded ${item.value.state}: ${item.value.session.tasks.map(task => task.title).join(", ")}, ${formatter.format(item.start)} to ${formatter.format(item.end)}`} title={`${item.value.state} · ${item.value.session.tasks.map(task => task.title).join(" · ")}\n${formatter.format(item.start)} – ${formatter.format(item.end)}`} onClick={() => openActual(day, item.value.session.id)}><strong>{item.value.state === "focus" ? item.value.session.tasks.map(task => task.title).join(" · ") : item.value.state[0].toUpperCase() + item.value.state.slice(1)}</strong><small>{formatter.format(item.start)} – {formatter.format(item.end)}</small></button>)}</div>
+          <div className="calendar-actual-lane" aria-label={`Recorded time for ${day}`}>{arrangeOverlaps(actualSlices.filter(item => item.day === day).flatMap(item => { const visible = visibleTimelineSlice(item, zonedInstant(day, showEarlyHours ? "00:00" : "06:00", zone)); return visible ? [visible] : []; })).map(item => <button key={`${item.value.session.id}:${item.start}`} className={`calendar-event actual-event actual-${item.value.state}`} style={eventStyle(item, "")} aria-label={`Recorded ${item.value.state}: ${item.value.session.tasks.map(task => task.title).join(", ")}, ${formatter.format(item.start)} to ${formatter.format(item.end)}`} title={`${item.value.state} · ${item.value.session.tasks.map(task => task.title).join(" · ")}\n${formatter.format(item.start)} – ${formatter.format(item.end)}`} onClick={() => openActual(day, item.value.session.id)}><strong>{item.value.state === "focus" ? item.value.session.tasks.map(task => task.title).join(" · ") : item.value.state[0].toUpperCase() + item.value.state.slice(1)}</strong><small>{formatter.format(item.start)} – {formatter.format(item.end)}</small></button>)}</div>
         </div>)}
       </div>
     </div></div>}
-    {editing && <CalendarPlanDialog editing={editing} tasks={tasks} timeZone={zone} busy={cloud.busy} error={cloud.error} activeFocus={!!activeId} standaloneReady={!!cloud.standaloneReady} completionReady={!!cloud.taskSchedulesReady} onSave={cloud.commit} onClose={() => setEditing(null)} onFocus={onFocus}/>}
+    {editing && <CalendarPlanDialog editing={editing} tasks={tasks} timeZone={zone} busy={cloud.busy} error={cloud.error} activeFocus={!!activeId} progressReady={!!cloud.progressReady} standaloneReady={!!cloud.standaloneReady} completionReady={!!cloud.taskSchedulesReady} onSave={cloud.commit} onClose={() => setEditing(null)} onFocus={onFocus}/>}
     {actual && <FocusDayDetails day={actual.day} sessions={actual.sessionId ? sessions.filter(session => session.id === actual.sessionId) : sessions} timeZone={zone} activeId={activeId} onClose={() => setActual(null)}/>}
   </div>;
 }

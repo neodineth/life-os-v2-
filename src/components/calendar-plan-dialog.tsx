@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CalendarProgress } from "./calendar-progress";
 import { GameDialog } from "./game-dialog";
 import { FocusTaskFields, type FocusDraft } from "./focus-task-fields";
 import { focusTaskFromTask, type FocusTask } from "@/lib/focus";
@@ -11,8 +12,8 @@ export type PlanEditing = { start: number; end: number; standalone?: boolean; oc
 type Draft = { title: string; taskId: string; startDay: string; startTime: string; endDay: string; endTime: string; focus: FocusDraft; frequency: "none" | "daily" | "weekly"; weekdays: number[]; until: string };
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export function CalendarPlanDialog({ editing, tasks, timeZone, busy, error, activeFocus, completionReady = false, standaloneReady = false, onSave, onClose, onFocus }: {
-  completionReady?: boolean; standaloneReady?: boolean;
+export function CalendarPlanDialog({ editing, tasks, timeZone, busy, error, activeFocus, completionReady = false, standaloneReady = false, progressReady = false, onSave, onClose, onFocus }: {
+  completionReady?: boolean; standaloneReady?: boolean; progressReady?: boolean;
   editing: PlanEditing; tasks: Task[]; timeZone: string; busy: boolean; error: string; activeFocus: boolean;
   onSave: (command: CalendarCommand) => Promise<boolean>; onClose: () => void;
   onFocus?: (task: FocusTask, occurrenceId: string) => void;
@@ -60,13 +61,15 @@ export function CalendarPlanDialog({ editing, tasks, timeZone, busy, error, acti
     if (await onSave(command)) onClose();
   };
   return <GameDialog title={occurrence ? "Planned task" : "Plan a task"} titleId="calendar-plan-title" onClose={onClose}>
+    {occurrence && <CalendarProgress occurrence={occurrence} ready={progressReady} busy={busy} onSave={onSave} onClose={onClose}/>}
     <form className="task-form calendar-plan-form" onSubmit={event => { event.preventDefault(); void save(); }}>
       {(validation || error) && <p className="auth-error" role="alert">{validation || error}</p>}
-      {occurrence && completionReady && <button className="secondary occurrence-complete" type="button" disabled={busy} onClick={async () => { if (await onSave({ action: "complete", seriesId: occurrence.seriesId, date: occurrence.date, done: !occurrence.done, expectedVersion: occurrence.completionVersion ?? null })) onClose(); }}>{occurrence.done ? "✓ Undo done" : "Done"}</button>}
-      {occurrence?.done && <p className="focus-optional-hint">Completed session. Its saved details are preserved. Undo done to edit an available occurrence.</p>}
+      {occurrence && completionReady && !progressReady && <button className="secondary occurrence-complete" type="button" disabled={busy} onClick={async () => { if (await onSave({ action: "complete", seriesId: occurrence.seriesId, date: occurrence.date, done: !occurrence.done, expectedVersion: occurrence.completionVersion ?? null })) onClose(); }}>{occurrence.done ? "✓ Undo done" : "Done"}</button>}
+      {occurrence?.done && <p className="focus-optional-hint">Completed session. Its saved details are preserved. Change the status to edit its schedule.</p>}
+      {occurrence && <h3>Schedule details</h3>}
       <fieldset className="form-controls" disabled={busy || !!occurrence?.done || (!!occurrence && !series)}>
         {occurrence?.repeating && <label>Apply changes to<select value={scope} onChange={event => { const whole = event.target.value === "series"; setScope(whole ? "series" : "occurrence"); setDraft(makeDraft(whole)); setValidation(""); }}><option value="occurrence">This occurrence</option><option value="series">Entire series</option></select></label>}
-        {standalone ? <><label>Task name<input required maxLength={180} autoFocus value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })}/></label><p className="focus-optional-hint">Calendar only. This task will not be added to a workspace.</p>{!standaloneReady && <p className="auth-error" role="alert">Calendar-only setup is required. Run LifeOS-V2-Calendar-Entries.sql in Supabase, then retry the calendar.</p>}</> : <label>Task<select required value={draft.taskId} onChange={event => setDraft(current => ({ ...current, taskId: event.target.value, focus: { levels: [], note: current.focus.note } }))}>
+        {standalone ? <><label>Task name<input required maxLength={180} autoFocus={!occurrence} value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })}/></label><p className="focus-optional-hint">Calendar only. This task will not be added to a workspace.</p>{!standaloneReady && <p className="auth-error" role="alert">Calendar-only setup is required. Run LifeOS-V2-Calendar-Entries.sql in Supabase, then retry the calendar.</p>}</> : <label>Task<select required value={draft.taskId} onChange={event => setDraft(current => ({ ...current, taskId: event.target.value, focus: { levels: [], note: current.focus.note } }))}>
           <option value="">Choose a task</option>
           {!selectedTask && snapshotTask && <option value={snapshotTask.id}>{snapshotTask.title} (unavailable)</option>}
           {tasks.filter(task => (!task.done || task.id === draft.taskId) && (series?.origin !== "task" || task.id === series.task.id)).map(task => <option key={task.id} value={task.id}>{task.title}{task.done ? " (completed)" : ""}</option>)}

@@ -20,8 +20,12 @@ export type PlannedBlock = z.infer<typeof plannedBlockSchema>;
 export type CalendarException = { seriesId: string; date: string; cancelled: boolean; override?: z.infer<typeof blockDetailsSchema> };
 export const exceptionSchema = z.object({ seriesId: z.uuid(), date: calendarDateSchema, cancelled: z.boolean(), override: blockDetailsSchema.optional() }).strict().refine(value => value.cancelled || !!value.override, "An occurrence needs new times or cancellation");
 export const occurrenceSchema = z.object({ task: focusTaskSchema, workspace, start: instant, end: instant, id: z.string(), seriesId: z.uuid(), date: calendarDateSchema, version: z.number().int().positive(), repeating: z.boolean(), timeZone: timeZoneSchema });
-export const completionSchema = z.object({ seriesId: z.uuid(), date: calendarDateSchema, done: z.boolean(), version: z.number().int().positive(), occurrence: occurrenceSchema });
+export const calendarStatusSchema = z.enum(["pending", "completed", "partial", "could_not_complete"]);
+export type CalendarStatus = z.infer<typeof calendarStatusSchema>;
+export const calendarStatusLabels: Record<CalendarStatus, string> = { pending: "Not completed yet", completed: "Completed", partial: "Partially completed", could_not_complete: "Couldn't complete" };
+export const completionSchema = z.object({ seriesId: z.uuid(), date: calendarDateSchema, done: z.boolean(), status: calendarStatusSchema.optional(), notes: z.string().max(10000).optional(), version: z.number().int().positive(), occurrence: occurrenceSchema });
 export const calendarCommandSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("progress"), seriesId: z.uuid(), date: calendarDateSchema, status: calendarStatusSchema, notes: z.string().max(10000), expectedVersion: z.number().int().positive().nullable(), expectedSeriesVersion: z.number().int().positive() }).strict(),
   z.object({ action: z.literal("delete-scoped"), id: z.uuid(), date: calendarDateSchema, scope: z.enum(["occurrence", "following", "series"]), expectedVersion: z.number().int().positive() }).strict(),
   z.object({ action: z.literal("save"), block: plannedBlockSchema, expectedVersion: z.number().int().positive().nullable() }).strict(),
   z.object({ action: z.literal("exception"), exception: exceptionSchema, expectedVersion: z.number().int().positive() }).strict(),
@@ -29,9 +33,9 @@ export const calendarCommandSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("complete"), seriesId: z.uuid(), date: calendarDateSchema, done: z.boolean(), expectedVersion: z.number().int().positive().nullable() }).strict(),
 ]);
 export type CalendarCommand = z.infer<typeof calendarCommandSchema>;
-export const calendarSnapshotSchema = z.object({ timeZone: timeZoneSchema, blocks: z.array(plannedBlockSchema), exceptions: z.array(exceptionSchema), versions: z.record(z.string(), z.number().int().positive()), completions: z.array(completionSchema).optional(), standaloneReady: z.boolean().optional(), taskSchedulesReady: z.boolean().optional() });
+export const calendarSnapshotSchema = z.object({ timeZone: timeZoneSchema, blocks: z.array(plannedBlockSchema), exceptions: z.array(exceptionSchema), versions: z.record(z.string(), z.number().int().positive()), completions: z.array(completionSchema).optional(), progressReady: z.boolean().optional(), standaloneReady: z.boolean().optional(), taskSchedulesReady: z.boolean().optional() });
 export type CalendarSnapshot = z.infer<typeof calendarSnapshotSchema>;
-export type CalendarOccurrence = z.infer<typeof occurrenceSchema> & { done?: boolean; completionVersion?: number };
+export type CalendarOccurrence = z.infer<typeof occurrenceSchema> & { done?: boolean; status?: CalendarStatus; notes?: string; completionVersion?: number };
 
 export function zonedDay(at: number, timeZone: string) {
   const date = new TZDate(at, timeZone);
@@ -94,9 +98,13 @@ export function expandCalendar(snapshot: CalendarSnapshot, from: number, to: num
   for (const completion of snapshot.completions || []) {
     const id = `${completion.seriesId}@${completion.date}`, current = results.get(id);
     if (completion.done) {
-      const occurrence = { ...completion.occurrence, version: snapshot.versions[completion.seriesId] || completion.occurrence.version, done: true, completionVersion: completion.version };
+      const occurrence = { ...completion.occurrence, version: snapshot.versions[completion.seriesId] || completion.occurrence.version, done: true, status: "completed" as const, notes: completion.notes || "", completionVersion: completion.version };
       if (occurrence.end > from && occurrence.start < to) results.set(id, occurrence); else results.delete(id);
-    } else if (current) results.set(id, { ...current, done: false, completionVersion: completion.version });
+    } else {
+      const status = completion.status === "completed" ? "pending" : completion.status || "pending";
+      const source = current || (status !== "pending" || completion.notes ? completion.occurrence : undefined);
+      if (source && source.end > from && source.start < to) results.set(id, { ...source, done: false, status, notes: completion.notes || "", completionVersion: completion.version });
+    }
   }
   return [...results.values()].sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
 }
