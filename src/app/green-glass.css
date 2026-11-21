@@ -137,3 +137,8 @@ main.calendar-page { padding:12px 12px 16px; }
 .calendar-event-open,.calendar-event-open:active{cursor:pointer;touch-action:pan-y}.calendar-delete-options{border:1px solid var(--line);padding:14px;border-radius:8px}.calendar-delete-options p{font-size:12px;color:var(--muted);margin:10px 0}.calendar-delete-options button{margin-right:8px}
 
 .calendar-early-toggle{margin-bottom:8px;font-size:11px;padding:7px 12px}.calendar-progress-form{padding:20px;border-bottom:1px solid var(--line)}.calendar-progress-form h3{font-size:15px}.calendar-progress-form p{font-size:12px;color:var(--muted);margin:10px 0}.calendar-progress-form fieldset{border:0;display:grid;gap:12px;min-width:0}.calendar-progress-form label{display:grid;gap:7px;font-size:12px}.calendar-progress-form textarea,.calendar-progress-form select{padding:10px;width:100%;border-radius:6px}.calendar-progress-preview{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.6}.calendar-progress-preview a{color:var(--green);text-decoration:underline}.calendar-status-partial{border-left-color:#f5ce63}.calendar-status-could_not_complete{border-left-color:#ff8997}
+
+/* Calendar outcomes use the same colours in Day, Week and Month views. */
+.focus-calendar .calendar-status-pending,.focus-calendar .calendar-status-could_not_complete { background:#3b1b20; border-color:#e66b79; color:#ffd9df; }
+.focus-calendar .calendar-status-partial { background:#382e16; border-color:#d9b34e; color:#ffe9a8; }
+.focus-calendar .calendar-status-completed { background:#153b2b; border-color:#3ecf8e; color:#c2f5dc; }
