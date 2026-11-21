@@ -129,3 +129,10 @@ export function arrangeOverlaps<T extends { start: number; end: number }>(events
   finish(); return result;
 }
 
+
+export function calendarBlockAppearance(occurrence: Pick<CalendarOccurrence, "done" | "status" | "end">, now: number) {
+  if (occurrence.done || occurrence.status === "completed") return "completed";
+  if (occurrence.status === "could_not_complete") return "could_not_complete";
+  if (occurrence.status === "partial") return "partial";
+  return now >= occurrence.end ? "elapsed" : "upcoming";
+}
