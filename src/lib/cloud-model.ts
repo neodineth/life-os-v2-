@@ -2,7 +2,8 @@
 import { normalizeProgress, type Task } from "./tasks.ts";
 import { plannedBlockSchema } from "./calendar.ts";
 
-export const workspaceNames = ["University 01", "University 02", "Startup 01", "Startup 02", "Personal Growth"] as const;
+import { workspaceIdSchema, customWorkspaceSchema, workspaceNameSchema } from "./workspaces.ts";
+export { workspaceNames } from "./workspaces.ts";
 const date = z.string().refine(v => v === "" || (/^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().slice(0, 10) === v), "Invalid date");
 const id = z.string().min(1).max(160);
 const progressSchema = z.object({
@@ -13,7 +14,7 @@ const progressSchema = z.object({
   if (p.completed > p.total || p.completedRanges?.some(([a,b]) => a > b || b > p.total) || Object.keys(p.names || {}).some(k => !/^\d+$/.test(k) || Number(k) < 1 || Number(k) > p.total)) ctx.addIssue({ code: "custom", message: "Invalid level progress" });
 });
 export const taskSchema = z.object({
-  id, title: z.string().trim().min(1).max(180), workspace: z.enum(workspaceNames),
+  id, title: z.string().trim().min(1).max(180), workspace: workspaceIdSchema,
   due: date, start: date, focus: date, priority: z.enum(["High", "Medium", "Low"]),
   done: z.boolean(), repeat: z.enum(["None", "Daily", "Weekly", "Monthly"]),
   completedAt: z.string().refine(v => !Number.isNaN(Date.parse(v)), "Invalid completion date").optional(),
@@ -26,10 +27,11 @@ export const taskSchema = z.object({
   const progress = normalizeProgress(task.progress);
   return { ...task, progress, done: task.completionMode === "occurrence" ? task.done : progress ? progress.completed === progress.total : task.done };
 });
-export const snapshotSchema = z.object({ tasks: z.array(taskSchema), versions: z.record(z.string(), z.number().int().positive()), playerName: z.string().max(50), workspaceLabels: z.record(z.string(), z.string()).optional(), workspaceVersions: z.record(z.string(), z.number().int().positive()).optional() });
+export const snapshotSchema = z.object({ tasks: z.array(taskSchema), versions: z.record(z.string(), z.number().int().positive()), playerName: z.string().max(50), workspaceLabels: z.record(z.string(), z.string()).optional(), workspaceIds: z.array(workspaceIdSchema).optional(), workspaceCreateReady: z.boolean().optional(), workspaceVersions: z.record(z.string(), z.number().int().positive()).optional() });
 export type CloudSnapshot = z.infer<typeof snapshotSchema>;
 export const commandSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("rename-workspace"), workspace: z.enum(workspaceNames), name: z.string().trim().min(1).max(50), expectedVersion: z.number().int().positive() }).strict(),
+  z.object({ type: z.literal("create-workspace"), workspace: customWorkspaceSchema, name: workspaceNameSchema }).strict(),
+  z.object({ type: z.literal("rename-workspace"), workspace: workspaceIdSchema, name: z.string().trim().min(1).max(50), expectedVersion: z.number().int().positive() }).strict(),
   z.object({ type: z.literal("save"), task: taskSchema, expectedVersion: z.number().int().positive().nullable(), today: date.refine(Boolean), nextId: z.uuid() }).strict(),
   z.object({ type: z.literal("save-scheduled"), task: taskSchema, expectedVersion: z.number().int().positive().nullable(), operationId: z.uuid(), blocks: z.array(plannedBlockSchema).max(20), scheduleVersions: z.record(z.string(), z.number().int().positive()) }).strict(),
   z.object({ type: z.literal("delete"), id, expectedVersion: z.number().int().positive() }).strict(),

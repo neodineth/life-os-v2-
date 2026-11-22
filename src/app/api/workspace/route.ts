@@ -17,6 +17,15 @@ export async function POST(request: Request) {
     const command = commandSchema.parse(await readBody(request));
     const { client, userId } = await authenticatedClient();
     if(request.headers.get("x-lifeos-account")!==userId)throw new AppError(401,"account_changed","Account changed. Please log in again.");
+    if (command.type === "create-workspace") {
+      const result = await client.rpc("lifeos_workspace_create", { p_workspace: command.workspace, p_name: command.name });
+      if (result.error) {
+        if (["PGRST202", "42883", "42703"].includes(result.error.code)) throw new AppError(503, "workspace_create_setup", "Apply LifeOS-V2-Add-Workspaces.sql in Supabase to create workspaces. Your entered name is kept.");
+        if (result.error.code === "22023") throw new AppError(400, "validation", "Choose a unique workspace name between 1 and 50 characters.");
+        throw databaseError(result.error);
+      }
+      return json(snapshotSchema.parse(result.data));
+    }
     if (command.type === "rename-workspace") {
       const result = await client.rpc("lifeos_workspace_rename", { p_workspace: command.workspace, p_name: command.name, p_expected_version: command.expectedVersion });
       if (result.error) {

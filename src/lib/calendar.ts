@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { workspaceIdSchema } from "./workspaces.ts";
 import { TZDate } from "@date-fns/tz";
 import { focusHistorySchema } from "./focus.ts";
 
@@ -7,7 +8,7 @@ export const timeZoneSchema = z.string().refine(value => { try { new Intl.DateTi
 export const calendarDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => { const date = new Date(value + "T00:00:00Z"); return Number.isFinite(+date) && date.toISOString().slice(0, 10) === value; }, "Invalid date");
 const instant = z.number().int().min(0).max(253402300799999);
 export const focusTaskSchema = focusHistorySchema.element.shape.tasks.element;
-const workspace = z.enum(["University 01", "University 02", "Startup 01", "Startup 02", "Personal Growth", "Calendar"]);
+const workspace = z.union([workspaceIdSchema, z.literal("Calendar")]);
 export const repeatSchema = z.object({ frequency: z.enum(["none", "daily", "weekly"]), weekdays: z.array(z.number().int().min(0).max(6)).max(7), until: calendarDateSchema.nullable() }).strict().refine(value => value.frequency !== "weekly" || value.weekdays.length > 0, "Select at least one weekday");
 export const blockDetailsSchema = z.object({ task: focusTaskSchema, workspace, start: instant, end: instant }).strict().refine(value => value.end > value.start && value.end - value.start <= 7 * 86400000, "Choose an end after the start (up to seven days)");
 export const plannedBlockSchema = z.object({ id: z.uuid(), task: focusTaskSchema, workspace, start: instant, end: instant, timeZone: timeZoneSchema, repeat: repeatSchema, origin: z.enum(["task", "calendar"]).optional(), retiredAt: instant.optional() }).strict().superRefine((value, ctx) => {
