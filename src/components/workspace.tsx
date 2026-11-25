@@ -6,7 +6,7 @@ import { TZDate } from "@date-fns/tz";
 import { createPortal } from "react-dom";
 import { differenceInCalendarDays, format, parseISO } from "date-fns";
 import { ArrowDownToLine, ArrowRight, Bell, BookOpen, CalendarDays, ChevronRight, Flag, Gamepad2, GraduationCap, LayoutDashboard, Leaf, LogOut, Menu, Pencil, Plus, Rocket, Search, Star, Trophy, X, Zap } from "lucide-react";
-import { playerStats, progressPercent, setCompletedCount, type Task } from "@/lib/tasks";
+import { compareTaskOrder, isTaskStarred, playerStats, progressPercent, setCompletedCount, type Task } from "@/lib/tasks";
 import { ProgressBar, TaskDetail } from "@/components/task-detail";
 import { TaskEditor } from "@/components/task-editor";
 import { GameDialog } from "@/components/game-dialog";
@@ -94,8 +94,7 @@ export default function Workspace({ userId }: { userId: string }) {
     : "";
   const stats = playerStats(tasks);
   const days = (due: string) => due && today ? differenceInCalendarDays(parseISO(due), parseISO(today)) : Infinity;
-  const pending = tasks.filter(t => !t.done).sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999"));
-  const focus = pending.filter(t => t.focus === today);
+  const pending = tasks.filter(t => !t.done).sort(compareTaskOrder);
   const reminders = pending.filter(t => days(t.due) <= 3 || days(t.due) === 7 || (t.start && t.start <= today));
   const selected = tasks.find(t => t.id === selectedId);
   function navigate(v: string) { if (v === "Tree Canvas") setTreeOpened(true); setView(v); setFilter("All tasks"); setMobile(false); }
@@ -114,8 +113,7 @@ export default function Workspace({ userId }: { userId: string }) {
     return updateTask(id, t => ({ ...t, done: !t.done, progress: t.completionMode === "occurrence" ? t.progress : t.progress ? setCompletedCount(t.progress, t.done ? t.progress.total - 1 : t.progress.total) : undefined }));
   }
   function pin(t: Task) {
-    if (t.focus !== today && focus.length >= 3) { setMessage("Focus is full (3/3)."); return; }
-    void updateTask(t.id,x=>({...x,focus:x.focus===today ? "" : today}));
+    void updateTask(t.id,x=>({...x,focus:x.focus ? "" : today || localDay(DEFAULT_TIME_ZONE)}));
   }
   async function retrySave() { if(cloud.retry && await cloud.retry())setEditor(null); }
   function exportTasks() {
@@ -123,7 +121,7 @@ export default function Workspace({ userId }: { userId: string }) {
     link.href = url; link.download = `lifeos-${today}.json`; link.click(); URL.revokeObjectURL(url);
   }
   const scoped = tasks.filter(t => (!workspaces.includes(view) || t.workspace === view) && t.title.toLowerCase().includes(search.toLowerCase()));
-  const completedBelow = scoped.filter(t => t.done).sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999"));
+  const completedBelow = scoped.filter(t => t.done).sort(compareTaskOrder);
   const visible = scoped.filter(t => {
     if (view === "Completed") return t.done;
     if (t.done) return false;
@@ -132,12 +130,9 @@ export default function Workspace({ userId }: { userId: string }) {
     if (filter === "Today") return t.due === today;
     if (filter === "Next 7 days") return days(t.due) > 0 && days(t.due) <= 7;
     if (filter === "Later") return days(t.due) > 7;
-    if (filter === "Planned today") return t.focus === today;
+    if (filter === "Starred") return isTaskStarred(t);
     return true;
-  }).sort((a, b) => {
-    const aDays = days(a.due), bDays = days(b.due);
-    return (aDays === bDays ? 0 : aDays - bDays) || a.title.localeCompare(b.title);
-  });
+  }).sort(compareTaskOrder);
   function deadline(t: Task) {
     return !t.due ? "No deadline" : !today ? t.due : days(t.due) === 0 ? "Due today" : days(t.due) < 0 ? `${Math.abs(days(t.due))} days overdue` : `${days(t.due)} ${days(t.due) === 1 ? "day" : "days"} left`;
   }
@@ -151,7 +146,7 @@ export default function Workspace({ userId }: { userId: string }) {
           {t.progress ? <span className="card-progress"><span><b>{t.progress.completed}/{t.progress.total}</b> {t.progress.unit}<strong>{progressPercent(t.progress)}%</strong></span><ProgressBar progress={t.progress} title={t.title}/></span> : <span className="card-reward"><Zap size={11}/>50 XP</span>}
         </span>
       </button>
-      <div className="quest-controls"><div className="quest-buttons">{!t.done && <button className={`icon-button star ${t.focus === today ? "selected" : ""}`} aria-label={`${t.focus === today ? "Unstar" : "Star"} ${t.title}`} disabled={busy} onClick={() => pin(t)}><Star size={16} fill={t.focus === today ? "currentColor" : "none"}/></button>}<button className="icon-button edit-task" aria-label={`Edit ${t.title}`} disabled={busy} onClick={() => openEditor(t)}><Pencil size={15}/></button></div><span className={`deadline-countdown ${t.done ? "none" : urgency}`}><strong>{t.done ? "Completed" : deadline(t)}</strong>{!t.done && urgency !== "none" && <small>{urgency} priority</small>}</span></div>
+      <div className="quest-controls"><div className="quest-buttons">{!t.done && <button className={`icon-button star ${isTaskStarred(t) ? "selected" : ""}`} aria-label={`${isTaskStarred(t) ? "Unstar" : "Star"} ${t.title}`} disabled={busy} onClick={() => pin(t)}><Star size={16} fill={isTaskStarred(t) ? "currentColor" : "none"}/></button>}<button className="icon-button edit-task" aria-label={`Edit ${t.title}`} disabled={busy} onClick={() => openEditor(t)}><Pencil size={15}/></button></div><span className={`deadline-countdown ${t.done ? "none" : urgency}`}><strong>{t.done ? "Completed" : deadline(t)}</strong>{!t.done && urgency !== "none" && <small>{urgency} priority</small>}</span></div>
     </article>;
   }
   return <div className="app-shell">
@@ -177,7 +172,7 @@ export default function Workspace({ userId }: { userId: string }) {
         {treeOpened && <TreeCanvas key={`tree-${userId}`} userId={userId} visible={view === "Tree Canvas"}/>}
         <section hidden={view === "AI chat" || view === "Tree Canvas"} className={`task-panel ${view === "Calendar" ? "calendar-panel" : ""}`} id="task-list">
           {view === "Calendar" ? <FocusCalendar key={calendarDay || "calendar"} initialDay={calendarDay} userId={userId} tasks={tasks} search={search} sessions={savedFocus} timeZone={DEFAULT_TIME_ZONE} onOpenTask={openTask} onDialogChange={() => {}}/> : <>
-            <div className="task-toolbar">{view !== "Completed" && view !== "Weekly review" ? <div className="tabs" role="group" aria-label="Filter tasks">{["All tasks", "Overdue", "Today", "Next 7 days", "Later", "Planned today"].map(f => <button key={f} className={`tab ${filter === f ? "selected" : ""}`} aria-pressed={filter === f} onClick={() => setFilter(f)}>{f}</button>)}</div> : <h2>{view === "Completed" ? "Cleared" : "Review"}</h2>}<span className="count-pill">{visible.length}</span></div>
+            <div className="task-toolbar">{view !== "Completed" && view !== "Weekly review" ? <div className="tabs" role="group" aria-label="Filter tasks">{["All tasks", "Overdue", "Today", "Next 7 days", "Later", "Starred"].map(f => <button key={f} className={`tab ${filter === f ? "selected" : ""}`} aria-pressed={filter === f} onClick={() => setFilter(f)}>{f}</button>)}</div> : <h2>{view === "Completed" ? "Cleared" : "Review"}</h2>}<span className="count-pill">{visible.length}</span></div>
             {ready && view !== "Completed" && <h2 className="task-group-heading">Upcoming tasks</h2>}
             {!ready ? <div className="empty">Loading…</div> : visible.length ? <div className="quest-list">{visible.map(row)}</div> : <div className="empty"><Gamepad2 size={34}/><h3>{search ? "No matches" : "No quests here"}</h3><button className="text-button" onClick={create}>Add task<ArrowRight size={15}/></button></div>}
             {ready && view !== "Completed" && completedBelow.length > 0 && <section className="completed-task-section" aria-label="Completed tasks"><h2 className="task-group-heading">Completed tasks <span>{completedBelow.length}</span></h2><div className="quest-list">{completedBelow.map(row)}</div></section>}

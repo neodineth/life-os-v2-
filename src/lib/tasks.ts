@@ -128,3 +128,14 @@ export function saveTask(tasks: Task[], input: Task, today: string, nextId: stri
   }
   return result;
 }
+
+// A stored focus date is a persistent star, not a daily expiry.
+export function isTaskStarred(task: Pick<Task, "focus" | "done">): boolean {
+  return !task.done && Boolean(task.focus);
+}
+export function compareTaskOrder(a: Task, b: Task): number {
+  return Number(a.done) - Number(b.done)
+    || Number(isTaskStarred(b)) - Number(isTaskStarred(a))
+    || (a.due || "9999-12-31").localeCompare(b.due || "9999-12-31")
+    || a.title.localeCompare(b.title);
+}
